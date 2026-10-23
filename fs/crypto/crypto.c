@@ -21,6 +21,7 @@
 
 #include <linux/pagemap.h>
 #include <linux/mempool.h>
+#include <linux/sched/mm.h>
 #include <linux/module.h>
 #include <linux/scatterlist.h>
 #include <linux/ratelimit.h>
@@ -306,6 +307,7 @@ EXPORT_SYMBOL(fscrypt_decrypt_block_inplace);
  */
 int fscrypt_initialize(unsigned int cop_flags)
 {
+	unsigned int nofs;
 	int err = 0;
 
 	/* No need to allocate a bounce page pool if this FS won't use it. */
@@ -317,8 +319,16 @@ int fscrypt_initialize(unsigned int cop_flags)
 		goto out_unlock;
 
 	err = -ENOMEM;
+	/*
+	 * One-time allocation under fscrypt_init_mutex, reached from the
+	 * filesystem with its own locks held (f2fs: cp_rwsem under
+	 * sb_internal). Don't let it recurse into filesystem reclaim, which
+	 * can evict inodes and take those locks again.
+	 */
+	nofs = memalloc_nofs_save();
 	fscrypt_bounce_page_pool =
 		mempool_create_page_pool(num_prealloc_crypto_pages, 0);
+	memalloc_nofs_restore(nofs);
 	if (!fscrypt_bounce_page_pool)
 		goto out_unlock;
 

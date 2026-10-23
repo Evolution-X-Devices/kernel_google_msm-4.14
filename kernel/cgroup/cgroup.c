@@ -76,7 +76,7 @@
 DEFINE_MUTEX(cgroup_mutex);
 DEFINE_SPINLOCK(css_set_lock);
 
-#ifdef CONFIG_PROVE_RCU
+#if (defined CONFIG_PROVE_RCU || defined CONFIG_LOCKDEP)
 EXPORT_SYMBOL_GPL(cgroup_mutex);
 EXPORT_SYMBOL_GPL(css_set_lock);
 #endif
@@ -1268,7 +1268,12 @@ static void cgroup_exit_root_id(struct cgroup_root *root)
 
 void cgroup_free_root(struct cgroup_root *root)
 {
-	kfree(root);
+	/*
+	 * proc_cpuset_show() reaches the root via cset_cgroup_from_root()
+	 * under RCU + css_set_lock only (4284ad6ee128); free it after a grace
+	 * period, as mainline d23b5c577715 does.
+	 */
+	kfree_rcu(root, rcu);
 }
 
 static void cgroup_destroy_root(struct cgroup_root *root)
@@ -1354,7 +1359,10 @@ static struct cgroup *cset_cgroup_from_root(struct css_set *cset,
 {
 	struct cgroup *res = NULL;
 
-	lockdep_assert_held(&cgroup_mutex);
+	/*
+	 * css_set_lock is enough (mainline d23b5c577715): proc_cpuset_show()
+	 * calls this without cgroup_mutex; the root is freed via RCU.
+	 */
 	lockdep_assert_held(&css_set_lock);
 
 	if (cset == &init_css_set) {

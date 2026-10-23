@@ -1239,10 +1239,10 @@ unsigned int ce_send_entries_avail(struct CE_handle *copyeng)
 	unsigned int sw_index;
 	unsigned int write_index;
 
-	qdf_spin_lock(&CE_state->ce_index_lock);
+	qdf_spin_lock_bh(&CE_state->ce_index_lock);
 	sw_index = src_ring->sw_index;
 	write_index = src_ring->write_index;
-	qdf_spin_unlock(&CE_state->ce_index_lock);
+	qdf_spin_unlock_bh(&CE_state->ce_index_lock);
 
 	return CE_RING_DELTA(nentries_mask, write_index, sw_index - 1);
 }
@@ -1255,10 +1255,10 @@ unsigned int ce_recv_entries_avail(struct CE_handle *copyeng)
 	unsigned int sw_index;
 	unsigned int write_index;
 
-	qdf_spin_lock(&CE_state->ce_index_lock);
+	qdf_spin_lock_bh(&CE_state->ce_index_lock);
 	sw_index = dest_ring->sw_index;
 	write_index = dest_ring->write_index;
-	qdf_spin_unlock(&CE_state->ce_index_lock);
+	qdf_spin_unlock_bh(&CE_state->ce_index_lock);
 
 	return CE_RING_DELTA(nentries_mask, write_index, sw_index - 1);
 }
@@ -1290,10 +1290,10 @@ unsigned int ce_send_entries_done(struct CE_handle *copyeng)
 	struct hif_softc *scn = CE_state->scn;
 	struct HIF_CE_state *hif_state = HIF_GET_CE_STATE(scn);
 
-	qdf_spin_lock(&CE_state->ce_index_lock);
+	qdf_spin_lock_bh(&CE_state->ce_index_lock);
 	nentries = hif_state->ce_services->ce_send_entries_done_nolock(
 						CE_state->scn, CE_state);
-	qdf_spin_unlock(&CE_state->ce_index_lock);
+	qdf_spin_unlock_bh(&CE_state->ce_index_lock);
 
 	return nentries;
 }
@@ -1325,10 +1325,10 @@ unsigned int ce_recv_entries_done(struct CE_handle *copyeng)
 	struct hif_softc *scn = CE_state->scn;
 	struct HIF_CE_state *hif_state = HIF_GET_CE_STATE(scn);
 
-	qdf_spin_lock(&CE_state->ce_index_lock);
+	qdf_spin_lock_bh(&CE_state->ce_index_lock);
 	nentries = hif_state->ce_services->ce_recv_entries_done_nolock(
 						CE_state->scn, CE_state);
-	qdf_spin_unlock(&CE_state->ce_index_lock);
+	qdf_spin_unlock_bh(&CE_state->ce_index_lock);
 
 	return nentries;
 }
@@ -1461,7 +1461,7 @@ ce_revoke_recv_next_legacy(struct CE_handle *copyeng,
 		return QDF_STATUS_E_FAILURE;
 
 	scn = CE_state->scn;
-	qdf_spin_lock(&CE_state->ce_index_lock);
+	qdf_spin_lock_bh(&CE_state->ce_index_lock);
 	nentries_mask = dest_ring->nentries_mask;
 	sw_index = dest_ring->sw_index;
 	write_index = dest_ring->write_index;
@@ -1491,7 +1491,7 @@ ce_revoke_recv_next_legacy(struct CE_handle *copyeng,
 	} else {
 		status = QDF_STATUS_E_FAILURE;
 	}
-	qdf_spin_unlock(&CE_state->ce_index_lock);
+	qdf_spin_unlock_bh(&CE_state->ce_index_lock);
 
 	return status;
 }
@@ -1627,7 +1627,8 @@ ce_cancel_send_next_legacy(struct CE_handle *copyeng,
 		return QDF_STATUS_E_FAILURE;
 
 	scn = CE_state->scn;
-	qdf_spin_lock(&CE_state->ce_index_lock);
+	/* _bh: the CE tasklet (ce_per_engine_service) takes this lock too */
+	qdf_spin_lock_bh(&CE_state->ce_index_lock);
 	nentries_mask = src_ring->nentries_mask;
 	sw_index = src_ring->sw_index;
 	write_index = src_ring->write_index;
@@ -1664,7 +1665,7 @@ ce_cancel_send_next_legacy(struct CE_handle *copyeng,
 	} else {
 		status = QDF_STATUS_E_FAILURE;
 	}
-	qdf_spin_unlock(&CE_state->ce_index_lock);
+	qdf_spin_unlock_bh(&CE_state->ce_index_lock);
 
 	return status;
 }

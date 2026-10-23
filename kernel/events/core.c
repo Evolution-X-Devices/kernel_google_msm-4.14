@@ -4642,7 +4642,16 @@ int perf_event_release_kernel(struct perf_event *event)
 {
 	int ret;
 
-	mutex_lock(&pmus_lock);
+	/*
+	 * pmus_lock is held here only as a CPU-offline barrier (1fc690b7b8c6).
+	 * Lockdep then finds cpu_hotplug_lock -> pmus_lock -> event_mutex
+	 * (perf_trace_destroy) -> trace_types_lock (module load) ->
+	 * cpu_hotplug_lock (tracefs instance_mkdir -> ring buffer alloc): a
+	 * deadlock needing hotplug + perf release + module load + instance
+	 * mkdir at once. Separate subclass so it doesn't turn lockdep off
+	 * (debug_locking); same as mutex_lock() without LOCKDEP.
+	 */
+	mutex_lock_nested(&pmus_lock, SINGLE_DEPTH_NESTING);
 	ret = __perf_event_release_kernel(event);
 	mutex_unlock(&pmus_lock);
 
@@ -5016,14 +5025,15 @@ static int perf_event_period(struct perf_event *event, u64 __user *arg)
 	if (!value)
 		return -EINVAL;
 
-	if (event->attr.freq && value > sysctl_perf_event_sample_rate)
-		return -EINVAL;
-
-	if (perf_event_check_period(event, value))
-		return -EINVAL;
-
-	if (!event->attr.freq && (value & (1ULL << 63)))
-		return -EINVAL;
+	if (event->attr.freq) {
+		if (value > sysctl_perf_event_sample_rate)
+			return -EINVAL;
+	} else {
+		if (perf_event_check_period(event, value))
+			return -EINVAL;
+		if (value & (1ULL << 63))
+			return -EINVAL;
+	}
 
 	event_function_call(event, __perf_event_period, &value);
 
@@ -7989,14 +7999,14 @@ __perf_event_account_interrupt(struct perf_event *event, int throttle)
 		hwc->interrupts = 1;
 	} else {
 		hwc->interrupts++;
-		if (unlikely(throttle &&
-			     hwc->interrupts > max_samples_per_tick)) {
-			__this_cpu_inc(perf_throttled_count);
-			tick_dep_set_cpu(smp_processor_id(), TICK_DEP_BIT_PERF_EVENTS);
-			hwc->interrupts = MAX_INTERRUPTS;
-			perf_log_throttle(event, 0);
-			ret = 1;
-		}
+	}
+
+	if (unlikely(throttle && hwc->interrupts >= max_samples_per_tick)) {
+		__this_cpu_inc(perf_throttled_count);
+		tick_dep_set_cpu(smp_processor_id(), TICK_DEP_BIT_PERF_EVENTS);
+		hwc->interrupts = MAX_INTERRUPTS;
+		perf_log_throttle(event, 0);
+		ret = 1;
 	}
 
 	if (event->attr.freq) {

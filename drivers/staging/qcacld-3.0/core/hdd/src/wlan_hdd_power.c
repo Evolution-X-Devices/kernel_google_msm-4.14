@@ -344,7 +344,7 @@ void hdd_enable_ns_offload(struct hdd_adapter *adapter,
 {
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	struct wlan_objmgr_psoc *psoc = hdd_ctx->psoc;
-	struct inet6_dev *in6_dev;
+	struct inet6_dev *in6_dev = NULL;
 	struct pmo_ns_req *ns_req;
 	QDF_STATUS status;
 	int errno;
@@ -356,7 +356,11 @@ void hdd_enable_ns_offload(struct hdd_adapter *adapter,
 		goto out;
 	}
 
-	in6_dev = __in6_dev_get(adapter->dev);
+	/*
+	 * Called from a work item without rtnl: __in6_dev_get() needs rtnl or
+	 * RCU. Take a reference instead, held while its addresses are read.
+	 */
+	in6_dev = in6_dev_get(adapter->dev);
 	if (NULL == in6_dev) {
 		hdd_err("IPv6 dev does not exist. Failed to request NSOffload");
 		goto out;
@@ -420,6 +424,8 @@ free_req:
 	qdf_mem_free(ns_req);
 
 out:
+	if (in6_dev)
+		in6_dev_put(in6_dev);
 	hdd_exit();
 }
 
@@ -580,34 +586,44 @@ out:
 }
 
 /**
- * hdd_lookup_ifaddr() - Lookup interface address data by name
+ * hdd_lookup_ifaddr() - Lookup the adapter's IPv4 address by name
  * @adapter: the adapter whose name should be searched for
  *
- * return in_ifaddr pointer on success, NULL for failure
+ * The in_device and its ifa_list are read under RCU: callers run from work
+ * items and notifiers without rtnl, so an in_ifaddr pointer must not be
+ * returned (it can be freed once RCU is dropped); return the address.
+ *
+ * return the local address on success, 0 for failure
  */
-static struct in_ifaddr *hdd_lookup_ifaddr(struct hdd_adapter *adapter)
+static __be32 hdd_lookup_ifaddr(struct hdd_adapter *adapter)
 {
 	struct in_ifaddr *ifa;
 	struct in_device *in_dev;
+	__be32 local = 0;
 
 	if (!adapter) {
 		hdd_err("adapter is null");
-		return NULL;
+		return 0;
 	}
 
-	in_dev = __in_dev_get_rtnl(adapter->dev);
+	rcu_read_lock();
+	in_dev = __in_dev_get_rcu(adapter->dev);
 	if (!in_dev) {
+		rcu_read_unlock();
 		hdd_err("Failed to get in_device");
-		return NULL;
+		return 0;
 	}
 
 	/* lookup address data by interface name */
 	for (ifa = in_dev->ifa_list; ifa; ifa = ifa->ifa_next) {
-		if (!strcmp(adapter->dev->name, ifa->ifa_label))
-			return ifa;
+		if (!strcmp(adapter->dev->name, ifa->ifa_label)) {
+			local = ifa->ifa_local;
+			break;
+		}
 	}
+	rcu_read_unlock();
 
-	return NULL;
+	return local;
 }
 
 /**
@@ -620,7 +636,7 @@ static struct in_ifaddr *hdd_lookup_ifaddr(struct hdd_adapter *adapter)
 static int hdd_populate_ipv4_addr(struct hdd_adapter *adapter,
 				  uint8_t *ipv4_addr)
 {
-	struct in_ifaddr *ifa;
+	__be32 local;
 	int i;
 
 	if (!adapter) {
@@ -633,15 +649,15 @@ static int hdd_populate_ipv4_addr(struct hdd_adapter *adapter,
 		return -EINVAL;
 	}
 
-	ifa = hdd_lookup_ifaddr(adapter);
-	if (!ifa || !ifa->ifa_local) {
+	local = hdd_lookup_ifaddr(adapter);
+	if (!local) {
 		hdd_err("ipv4 address not found");
 		return -EINVAL;
 	}
 
 	/* convert u32 to byte array */
 	for (i = 0; i < 4; i++)
-		ipv4_addr[i] = (ifa->ifa_local >> i * 8) & 0xff;
+		ipv4_addr[i] = (local >> i * 8) & 0xff;
 
 	return 0;
 }
@@ -728,7 +744,7 @@ static void __hdd_ipv4_notifier_work_queue(struct work_struct *work)
 	struct hdd_adapter *adapter;
 	int errno;
 	struct csr_roam_profile *roam_profile;
-	struct in_ifaddr *ifa;
+	__be32 local;
 
 	hdd_enter();
 
@@ -751,10 +767,10 @@ static void __hdd_ipv4_notifier_work_queue(struct work_struct *work)
 		  hdd_ctx->is_fils_roaming_supported);
 	roam_profile = hdd_roam_profile(adapter);
 
-	ifa = hdd_lookup_ifaddr(adapter);
-	if (ifa && hdd_ctx->is_fils_roaming_supported)
+	local = hdd_lookup_ifaddr(adapter);
+	if (local && hdd_ctx->is_fils_roaming_supported)
 		sme_send_hlp_ie_info(hdd_ctx->mac_handle, adapter->session_id,
-				     roam_profile, ifa->ifa_local);
+				     roam_profile, local);
 exit:
 	hdd_exit();
 }
@@ -820,8 +836,7 @@ static int __wlan_hdd_ipv4_changed(struct notifier_block *nb,
 			goto exit;
 		}
 
-		ifa = hdd_lookup_ifaddr(adapter);
-		if (ifa && ifa->ifa_local)
+		if (hdd_lookup_ifaddr(adapter))
 			schedule_work(&adapter->ipv4_notifier_work);
 	}
 
@@ -844,33 +859,14 @@ int wlan_hdd_ipv4_changed(struct notifier_block *nb,
 }
 
 /**
- * hdd_get_ipv4_local_interface() - get ipv4 local interafce from iface list
+ * hdd_get_ipv4_local_interface() - get the adapter's IPv4 local address
  * @adapter: Adapter context for which ARP offload is to be configured
  *
- * Return:
- *	ifa - on successful operation,
- *	NULL - on failure of operation
+ * Return: the local address, 0 if none (see hdd_lookup_ifaddr())
  */
-static struct in_ifaddr *hdd_get_ipv4_local_interface(
-				struct hdd_adapter *adapter)
+static __be32 hdd_get_ipv4_local_interface(struct hdd_adapter *adapter)
 {
-	struct in_ifaddr **ifap = NULL;
-	struct in_ifaddr *ifa = NULL;
-	struct in_device *in_dev;
-
-	in_dev = __in_dev_get_rtnl(adapter->dev);
-	if (in_dev) {
-		for (ifap = &in_dev->ifa_list; (ifa = *ifap) != NULL;
-			     ifap = &ifa->ifa_next) {
-			if (!strcmp(adapter->dev->name, ifa->ifa_label)) {
-				/* if match break */
-				return ifa;
-			}
-		}
-	}
-	ifa = NULL;
-
-	return ifa;
+	return hdd_lookup_ifaddr(adapter);
 }
 
 void hdd_enable_arp_offload(struct hdd_adapter *adapter,
@@ -880,7 +876,7 @@ void hdd_enable_arp_offload(struct hdd_adapter *adapter,
 	struct wlan_objmgr_psoc *psoc = hdd_ctx->psoc;
 	QDF_STATUS status;
 	struct pmo_arp_req *arp_req;
-	struct in_ifaddr *ifa;
+	__be32 local;
 
 	hdd_enter();
 
@@ -900,14 +896,14 @@ void hdd_enable_arp_offload(struct hdd_adapter *adapter,
 		goto free_req;
 	}
 
-	ifa = hdd_get_ipv4_local_interface(adapter);
-	if (!ifa || !ifa->ifa_local) {
+	local = hdd_get_ipv4_local_interface(adapter);
+	if (!local) {
 		hdd_info("IP Address is not assigned");
 		status = QDF_STATUS_NOT_INITIALIZED;
 		goto free_req;
 	}
 
-	arp_req->ipv4_addr = (uint32_t)ifa->ifa_local;
+	arp_req->ipv4_addr = (uint32_t)local;
 
 	status = pmo_ucfg_cache_arp_offload_req(arp_req);
 	if (QDF_IS_STATUS_ERROR(status)) {

@@ -4363,6 +4363,33 @@ static int regulator_register_resolve_supply(struct device *dev, void *data)
 	return 0;
 }
 
+#ifdef CONFIG_LOCKDEP
+/*
+ * One lock class per regulator: a regulator's ops may call into other
+ * regulators (qusb_phy_dpdm_regulator_enable -> regulator_set_voltage on its
+ * supplies), which with one shared rdev->mutex class lockdep reports as
+ * recursive locking and then turns itself off. Mainline solved this with the
+ * ww_mutex rework (4.20). Lockdep needs static keys, hence the array;
+ * regulators past its end share the last one.
+ */
+#define REGULATOR_LOCK_CLASSES	256
+static struct lock_class_key regulator_lock_keys[REGULATOR_LOCK_CLASSES];
+static atomic_t regulator_lock_next = ATOMIC_INIT(0);
+
+static void regulator_mutex_init(struct regulator_dev *rdev)
+{
+	int i = atomic_inc_return(&regulator_lock_next) - 1;
+
+	__mutex_init(&rdev->mutex, "&rdev->mutex",
+		     &regulator_lock_keys[min(i, REGULATOR_LOCK_CLASSES - 1)]);
+}
+#else
+static void regulator_mutex_init(struct regulator_dev *rdev)
+{
+	mutex_init(&rdev->mutex);
+}
+#endif
+
 /**
  * regulator_register - register regulator
  * @regulator_desc: regulator to register
@@ -4433,7 +4460,7 @@ regulator_register(const struct regulator_desc *regulator_desc,
 		rdev->dev.of_node = of_node_get(config->of_node);
 	}
 
-	mutex_init(&rdev->mutex);
+	regulator_mutex_init(rdev);
 	rdev->reg_data = config->driver_data;
 	rdev->owner = regulator_desc->owner;
 	rdev->desc = regulator_desc;

@@ -523,6 +523,37 @@ static void devfreq_dev_release(struct device *dev)
 	kfree(devfreq);
 }
 
+#ifdef CONFIG_LOCKDEP
+/*
+ * One lock class per devfreq: one devfreq's governor may reach another
+ * devfreq (msm-adreno-tz on the GPU -> kgsl device mutex -> df_lock -> the
+ * bus devbw devfreq), which with one shared class lockdep reports as a
+ * circular dependency and then turns itself off. Lockdep needs static keys,
+ * hence the array; devfreqs past its end share the last one.
+ */
+#define DEVFREQ_LOCK_CLASSES	64
+static struct lock_class_key devfreq_lock_keys[DEVFREQ_LOCK_CLASSES];
+static struct lock_class_key devfreq_event_lock_keys[DEVFREQ_LOCK_CLASSES];
+static atomic_t devfreq_lock_next = ATOMIC_INIT(0);
+
+/* Also event_lock: kgsl resumes the devbw devfreq and suspends the busmon one. */
+static void devfreq_lock_init(struct devfreq *devfreq)
+{
+	int i = min(atomic_inc_return(&devfreq_lock_next) - 1,
+		    DEVFREQ_LOCK_CLASSES - 1);
+
+	__mutex_init(&devfreq->lock, "&devfreq->lock", &devfreq_lock_keys[i]);
+	__mutex_init(&devfreq->event_lock, "&devfreq->event_lock",
+		     &devfreq_event_lock_keys[i]);
+}
+#else
+static void devfreq_lock_init(struct devfreq *devfreq)
+{
+	mutex_init(&devfreq->lock);
+	mutex_init(&devfreq->event_lock);
+}
+#endif
+
 /**
  * devfreq_add_device() - Add devfreq feature to the device
  * @dev:	the device to add devfreq feature.
@@ -561,8 +592,7 @@ struct devfreq *devfreq_add_device(struct device *dev,
 		goto err_out;
 	}
 
-	mutex_init(&devfreq->lock);
-	mutex_init(&devfreq->event_lock);
+	devfreq_lock_init(devfreq);
 	mutex_lock(&devfreq->lock);
 	devfreq->dev.parent = dev;
 	devfreq->dev.class = devfreq_class;

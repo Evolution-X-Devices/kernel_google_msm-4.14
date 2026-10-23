@@ -709,6 +709,32 @@ static const struct file_operations votable_status_ops = {
 	.release	= single_release,
 };
 
+#ifdef CONFIG_LOCKDEP
+/*
+ * One lock class per votable: a votable's callback commonly votes on another
+ * votable (e.g. smblib_dc_icl_vote_callback), which with one shared class
+ * lockdep reports as recursive locking and then turns itself off. Separate
+ * classes also let it check the ordering between votables. Lockdep needs
+ * static keys, hence the array; votables past its end share the last one.
+ */
+#define VOTABLE_LOCK_CLASSES	96
+static struct lock_class_key votable_lock_keys[VOTABLE_LOCK_CLASSES];
+static atomic_t votable_lock_next = ATOMIC_INIT(0);
+
+static void votable_lock_init(struct votable *votable)
+{
+	int i = atomic_inc_return(&votable_lock_next) - 1;
+
+	__mutex_init(&votable->vote_lock, "&votable->vote_lock",
+		     &votable_lock_keys[min(i, VOTABLE_LOCK_CLASSES - 1)]);
+}
+#else
+static void votable_lock_init(struct votable *votable)
+{
+	mutex_init(&votable->vote_lock);
+}
+#endif
+
 struct votable *create_votable(const char *name,
 				int votable_type,
 				int (*callback)(struct votable *votable,
@@ -755,7 +781,7 @@ struct votable *create_votable(const char *name,
 	votable->type = votable_type;
 	votable->data = data;
 	votable->override_result = -EINVAL;
-	mutex_init(&votable->vote_lock);
+	votable_lock_init(votable);
 
 	/*
 	 * Because effective_result and client states are invalid

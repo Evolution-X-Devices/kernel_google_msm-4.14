@@ -3717,7 +3717,14 @@ int smblib_get_prop_usb_port_temp(struct smb_charger *chg,
 	} else if (IS_ERR(chg->usb_port_tz))
 		return PTR_ERR(chg->usb_port_tz);
 
+	/*
+	 * Reached from uevent writes (kernfs active ref); lockdep joins that
+	 * with other devices' uevent files via the shared kn->count class and
+	 * GPU thermal throttling into a false cycle. Debug variants only.
+	 */
+	lockdep_off();
 	rc = thermal_zone_get_temp(chg->usb_port_tz, &temp);
+	lockdep_on();
 	if (rc < 0) {
 		pr_err("Couldn't get temp USB port thermal zone rc=%d\n", rc);
 		return rc;

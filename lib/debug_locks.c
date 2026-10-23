@@ -21,7 +21,15 @@
  * that would just muddy the log. So we report the first one and
  * shut up after that.
  */
-int debug_locks = 1;
+/*
+ * Off in normal builds (db9e8ba3ec12 "lib: Disable debug_locks"), but on
+ * whenever a lock debugging option is built in -- otherwise lockdep and the
+ * spinlock/mutex checks of the debug_locking variant silently do nothing.
+ */
+int debug_locks __read_mostly = IS_ENABLED(CONFIG_LOCKDEP) ||
+				IS_ENABLED(CONFIG_DEBUG_SPINLOCK) ||
+				IS_ENABLED(CONFIG_DEBUG_MUTEXES) ||
+				IS_ENABLED(CONFIG_DEBUG_RT_MUTEXES);
 EXPORT_SYMBOL_GPL(debug_locks);
 
 /*

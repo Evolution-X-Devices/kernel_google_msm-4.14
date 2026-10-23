@@ -45,6 +45,7 @@
 int cam_jpeg_enc_init_hw(void *device_priv,
 	void *init_hw_args, uint32_t arg_size)
 {
+	unsigned long hw_flags; /* hw_lock is also taken in cam_jpeg_enc_irq */
 	struct cam_hw_info *jpeg_enc_dev = device_priv;
 	struct cam_hw_soc_info *soc_info = NULL;
 	struct cam_jpeg_enc_device_core_info *core_info = NULL;
@@ -91,9 +92,9 @@ int cam_jpeg_enc_init_hw(void *device_priv,
 		CAM_ERR(CAM_JPEG, "soc enable is failed %d", rc);
 		goto soc_failed;
 	}
-	spin_lock(&jpeg_enc_dev->hw_lock);
+	spin_lock_irqsave(&jpeg_enc_dev->hw_lock, hw_flags);
 	jpeg_enc_dev->hw_state = CAM_HW_STATE_POWER_UP;
-	spin_unlock(&jpeg_enc_dev->hw_lock);
+	spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 
 	mutex_unlock(&core_info->core_mutex);
 
@@ -111,6 +112,7 @@ cpas_failed:
 int cam_jpeg_enc_deinit_hw(void *device_priv,
 	void *init_hw_args, uint32_t arg_size)
 {
+	unsigned long hw_flags; /* hw_lock is also taken in cam_jpeg_enc_irq */
 	struct cam_hw_info *jpeg_enc_dev = device_priv;
 	struct cam_hw_soc_info *soc_info = NULL;
 	struct cam_jpeg_enc_device_core_info *core_info = NULL;
@@ -143,9 +145,9 @@ int cam_jpeg_enc_deinit_hw(void *device_priv,
 		return -EFAULT;
 	}
 
-	spin_lock(&jpeg_enc_dev->hw_lock);
+	spin_lock_irqsave(&jpeg_enc_dev->hw_lock, hw_flags);
 	jpeg_enc_dev->hw_state = CAM_HW_STATE_POWER_DOWN;
-	spin_unlock(&jpeg_enc_dev->hw_lock);
+	spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 	rc = cam_jpeg_enc_disable_soc_resources(soc_info);
 	if (rc)
 		CAM_ERR(CAM_JPEG, "soc disable failed %d", rc);
@@ -261,6 +263,7 @@ irqreturn_t cam_jpeg_enc_irq(int irq_num, void *data)
 int cam_jpeg_enc_reset_hw(void *data,
 	void *start_args, uint32_t arg_size)
 {
+	unsigned long hw_flags; /* hw_lock is also taken in cam_jpeg_enc_irq */
 	struct cam_hw_info *jpeg_enc_dev = data;
 	struct cam_jpeg_enc_device_core_info *core_info = NULL;
 	struct cam_hw_soc_info *soc_info = NULL;
@@ -280,23 +283,23 @@ int cam_jpeg_enc_reset_hw(void *data,
 	mem_base = soc_info->reg_map[0].mem_base;
 
 	mutex_lock(&core_info->core_mutex);
-	spin_lock(&jpeg_enc_dev->hw_lock);
+	spin_lock_irqsave(&jpeg_enc_dev->hw_lock, hw_flags);
 	if (jpeg_enc_dev->hw_state == CAM_HW_STATE_POWER_DOWN) {
 		CAM_ERR(CAM_JPEG, "JPEG HW is in off state");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		mutex_unlock(&core_info->core_mutex);
 		return -EINVAL;
 	}
 	if (core_info->core_state == CAM_JPEG_ENC_CORE_RESETTING) {
 		CAM_ERR(CAM_JPEG, "alrady resetting");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		mutex_unlock(&core_info->core_mutex);
 		return 0;
 	}
 
 	reinit_completion(&jpeg_enc_dev->hw_complete);
 	core_info->core_state = CAM_JPEG_ENC_CORE_RESETTING;
-	spin_unlock(&jpeg_enc_dev->hw_lock);
+	spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 
 	cam_io_w_mb(hw_info->reg_val.int_mask_disable_all,
 		mem_base + hw_info->reg_offset.int_mask);
@@ -321,6 +324,7 @@ int cam_jpeg_enc_reset_hw(void *data,
 int cam_jpeg_enc_start_hw(void *data,
 	void *start_args, uint32_t arg_size)
 {
+	unsigned long hw_flags; /* hw_lock is also taken in cam_jpeg_enc_irq */
 	struct cam_hw_info *jpeg_enc_dev = data;
 	struct cam_jpeg_enc_device_core_info *core_info = NULL;
 	struct cam_hw_soc_info *soc_info = NULL;
@@ -338,18 +342,18 @@ int cam_jpeg_enc_start_hw(void *data,
 	hw_info = core_info->jpeg_enc_hw_info;
 	mem_base = soc_info->reg_map[0].mem_base;
 
-	spin_lock(&jpeg_enc_dev->hw_lock);
+	spin_lock_irqsave(&jpeg_enc_dev->hw_lock, hw_flags);
 	if (jpeg_enc_dev->hw_state == CAM_HW_STATE_POWER_DOWN) {
 		CAM_ERR(CAM_JPEG, "JPEG HW is in off state");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		return -EINVAL;
 	}
 	if (core_info->core_state != CAM_JPEG_ENC_CORE_READY) {
 		CAM_ERR(CAM_JPEG, "Error not ready");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		return -EINVAL;
 	}
-	spin_unlock(&jpeg_enc_dev->hw_lock);
+	spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 
 	cam_io_w_mb(hw_info->reg_val.hw_cmd_start,
 		mem_base + hw_info->reg_offset.hw_cmd);
@@ -360,6 +364,7 @@ int cam_jpeg_enc_start_hw(void *data,
 int cam_jpeg_enc_stop_hw(void *data,
 	void *stop_args, uint32_t arg_size)
 {
+	unsigned long hw_flags; /* hw_lock is also taken in cam_jpeg_enc_irq */
 	struct cam_hw_info *jpeg_enc_dev = data;
 	struct cam_jpeg_enc_device_core_info *core_info = NULL;
 	struct cam_hw_soc_info *soc_info = NULL;
@@ -378,23 +383,23 @@ int cam_jpeg_enc_stop_hw(void *data,
 	mem_base = soc_info->reg_map[0].mem_base;
 
 	mutex_lock(&core_info->core_mutex);
-	spin_lock(&jpeg_enc_dev->hw_lock);
+	spin_lock_irqsave(&jpeg_enc_dev->hw_lock, hw_flags);
 	if (jpeg_enc_dev->hw_state == CAM_HW_STATE_POWER_DOWN) {
 		CAM_ERR(CAM_JPEG, "JPEG HW is in off state");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		mutex_unlock(&core_info->core_mutex);
 		return -EINVAL;
 	}
 	if (core_info->core_state == CAM_JPEG_ENC_CORE_ABORTING) {
 		CAM_ERR(CAM_JPEG, "alrady stopping");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		mutex_unlock(&core_info->core_mutex);
 		return 0;
 	}
 
 	reinit_completion(&jpeg_enc_dev->hw_complete);
 	core_info->core_state = CAM_JPEG_ENC_CORE_ABORTING;
-	spin_unlock(&jpeg_enc_dev->hw_lock);
+	spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 
 	cam_io_w_mb(hw_info->reg_val.hw_cmd_stop,
 		mem_base + hw_info->reg_offset.hw_cmd);
@@ -414,6 +419,7 @@ int cam_jpeg_enc_hw_dump(
 	struct cam_hw_info *jpeg_enc_dev,
 	struct cam_jpeg_hw_dump_args *dump_args)
 {
+	unsigned long hw_flags; /* hw_lock is also taken in cam_jpeg_enc_irq */
 
 	struct cam_hw_soc_info *soc_info = NULL;
 	int i;
@@ -428,13 +434,13 @@ int cam_jpeg_enc_hw_dump(
 	core_info = (struct cam_jpeg_enc_device_core_info *)
 		jpeg_enc_dev->core_info;
 	hw_info = core_info->jpeg_enc_hw_info;
-	spin_lock(&jpeg_enc_dev->hw_lock);
+	spin_lock_irqsave(&jpeg_enc_dev->hw_lock, hw_flags);
 	if (jpeg_enc_dev->hw_state == CAM_HW_STATE_POWER_DOWN) {
 		CAM_ERR(CAM_JPEG, "JPEG HW is in off state");
-		spin_unlock(&jpeg_enc_dev->hw_lock);
+		spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 		return -EINVAL;
 	}
-	spin_unlock(&jpeg_enc_dev->hw_lock);
+	spin_unlock_irqrestore(&jpeg_enc_dev->hw_lock, hw_flags);
 	remain_len = dump_args->buf_len - dump_args->offset;
 	min_len =  2 * (sizeof(struct cam_jpeg_hw_dump_header) +
 		    CAM_JPEG_HW_DUMP_TAG_MAX_LEN) +

@@ -4,12 +4,18 @@ POST_DEFCONFIG_CMDS="check_defconfig && update_debug_config"
 
 function update_debug_config() {
     ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
+         -e CONFIG_DEBUG_FS \
          -e CONFIG_DEBUG_RT_MUTEXES \
          -e CONFIG_DEBUG_SPINLOCK \
          -e CONFIG_DEBUG_SPINLOCK_PANIC_ON_BUG \
          -e CONFIG_DEBUG_MUTEXES \
          -e CONFIG_DEBUG_PREEMPT \
          -e CONFIG_DEBUG_ATOMIC_SLEEP \
+         -e CONFIG_LOCKDEP \
+         -e CONFIG_DEBUG_LOCK_ALLOC \
+         -e CONFIG_PROVE_LOCKING \
+         -e CONFIG_PROVE_RCU \
+         -e CONFIG_DEBUG_LOCKING_API_SELFTESTS \
          -e CONFIG_PANIC_ON_WARN_DEFAULT_ENABLE \
          -d LTO \
          -d LTO_CLANG \

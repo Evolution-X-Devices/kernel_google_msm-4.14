@@ -198,6 +198,16 @@ static inline void timer_setup(struct timer_list *timer,
 	__setup_timer(timer, __timer_callback,
 		      (TIMER_DATA_TYPE)timer, flags);
 }
+
+static inline void timer_setup_on_stack(struct timer_list *timer,
+					void (*callback)(struct timer_list *),
+					unsigned int flags)
+{
+	timer->__function = callback;
+
+	__setup_timer_on_stack(timer, __timer_callback,
+			       (TIMER_DATA_TYPE)timer, flags);
+}
 #else
 static inline void timer_setup(struct timer_list *timer,
 			       void (*callback)(struct timer_list *),
@@ -205,6 +215,14 @@ static inline void timer_setup(struct timer_list *timer,
 {
 	__setup_timer(timer, (TIMER_FUNC_TYPE)callback,
 		      (TIMER_DATA_TYPE)timer, flags);
+}
+
+static inline void timer_setup_on_stack(struct timer_list *timer,
+					void (*callback)(struct timer_list *),
+					unsigned int flags)
+{
+	__setup_timer_on_stack(timer, (TIMER_FUNC_TYPE)callback,
+			       (TIMER_DATA_TYPE)timer, flags);
 }
 #endif
 

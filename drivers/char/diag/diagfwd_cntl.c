@@ -331,19 +331,32 @@ static void process_command_registration(uint8_t *buf, uint32_t len,
 
 static void diag_close_transport_work_fn(struct work_struct *work)
 {
-	uint8_t transport;
+	uint8_t transport[NUM_PERIPHERALS];
+	uint16_t to_close;
 	uint8_t peripheral;
 
+	/*
+	 * Take the work list under cntl_lock, but close the transports after
+	 * dropping it: diagfwd_close_transport() takes diagfwd_channel_mutex,
+	 * and the channel read path holds that mutex while it takes cntl_lock
+	 * to process control packets -- the very packets (feature mask) that
+	 * queue this work. Closing under cntl_lock is an ABBA deadlock.
+	 */
 	mutex_lock(&driver->cntl_lock);
-	for (peripheral = 0; peripheral <= NUM_PERIPHERALS; peripheral++) {
-		if (!(driver->close_transport & PERIPHERAL_MASK(peripheral)))
-			continue;
-		driver->close_transport ^= PERIPHERAL_MASK(peripheral);
-		transport = driver->feature[peripheral].sockets_enabled ?
+	to_close = driver->close_transport;
+	driver->close_transport = 0;
+	for (peripheral = 0; peripheral < NUM_PERIPHERALS; peripheral++)
+		transport[peripheral] =
+			driver->feature[peripheral].sockets_enabled ?
 					TRANSPORT_RPMSG : TRANSPORT_SOCKET;
-		diagfwd_close_transport(transport, peripheral);
-	}
 	mutex_unlock(&driver->cntl_lock);
+
+	/* only peripherals < NUM_PERIPHERALS are queued (process_socket_feature) */
+	for (peripheral = 0; peripheral < NUM_PERIPHERALS; peripheral++) {
+		if (!(to_close & PERIPHERAL_MASK(peripheral)))
+			continue;
+		diagfwd_close_transport(transport[peripheral], peripheral);
+	}
 }
 
 static void process_socket_feature(uint8_t peripheral)

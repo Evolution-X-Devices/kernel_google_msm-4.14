@@ -68,12 +68,12 @@
 	do { \
 		SDEROT_DBG("SDEREG.W:[%s:0x%X] <= 0x%X\n", #off, (off),\
 				(u32)(data));\
-		writel_relaxed_no_log( \
+		writel_relaxed( \
 				(REGDMA_OP_REGWRITE | \
 				 ((off) & REGDMA_ADDR_OFFSET_MASK)), \
 				p); \
 		p += sizeof(u32); \
-		writel_relaxed_no_log(data, p); \
+		writel_relaxed(data, p); \
 		p += sizeof(u32); \
 	} while (0)
 
@@ -81,14 +81,14 @@
 	do { \
 		SDEROT_DBG("SDEREG.M:[%s:0x%X] <= 0x%X\n", #off, (off),\
 				(u32)(data));\
-		writel_relaxed_no_log( \
+		writel_relaxed( \
 				(REGDMA_OP_REGMODIFY | \
 				 ((off) & REGDMA_ADDR_OFFSET_MASK)), \
 				p); \
 		p += sizeof(u32); \
-		writel_relaxed_no_log(mask, p); \
+		writel_relaxed(mask, p); \
 		p += sizeof(u32); \
-		writel_relaxed_no_log(data, p); \
+		writel_relaxed(data, p); \
 		p += sizeof(u32); \
 	} while (0)
 
@@ -96,25 +96,25 @@
 	do { \
 		SDEROT_DBG("SDEREG.B:[%s:0x%X:0x%X]\n", #off, (off),\
 				(u32)(len));\
-		writel_relaxed_no_log( \
+		writel_relaxed( \
 				(REGDMA_OP_BLKWRITE_INC | \
 				 ((off) & REGDMA_ADDR_OFFSET_MASK)), \
 				p); \
 		p += sizeof(u32); \
-		writel_relaxed_no_log(len, p); \
+		writel_relaxed(len, p); \
 		p += sizeof(u32); \
 	} while (0)
 
 #define SDE_REGDMA_BLKWRITE_DATA(p, data) \
 	do { \
 		SDEROT_DBG("SDEREG.I:[:] <= 0x%X\n", (u32)(data));\
-		writel_relaxed_no_log(data, p); \
+		writel_relaxed(data, p); \
 		p += sizeof(u32); \
 	} while (0)
 
 #define SDE_REGDMA_READ(p, data) \
 	do { \
-		data = readl_relaxed_no_log(p); \
+		data = readl_relaxed(p); \
 		p += sizeof(u32); \
 	} while (0)
 
@@ -545,7 +545,7 @@ static struct sde_rot_regdump sde_rot_r3_regdump[] = {
 
 struct sde_rot_cdp_params {
 	bool enable;
-	struct sde_mdp_format_params *fmt;
+	const struct sde_mdp_format_params *fmt;
 	u32 offset;
 };
 
@@ -1588,7 +1588,7 @@ static void sde_hw_rotator_setup_fetchengine(struct sde_hw_rotator_context *ctx,
 		u32 dnsc_factor_w, u32 dnsc_factor_h, u32 flags)
 {
 	struct sde_hw_rotator *rot = ctx->rot;
-	struct sde_mdp_format_params *fmt;
+	const struct sde_mdp_format_params *fmt;
 	struct sde_mdp_data *data;
 	struct sde_rot_cdp_params cdp_params = {0};
 	struct sde_rot_data_type *mdata = sde_rot_get_mdata();
@@ -1813,7 +1813,7 @@ static void sde_hw_rotator_setup_wbengine(struct sde_hw_rotator_context *ctx,
 		u32 flags)
 {
 	struct sde_rot_data_type *mdata = sde_rot_get_mdata();
-	struct sde_mdp_format_params *fmt;
+	const struct sde_mdp_format_params *fmt;
 	struct sde_rot_cdp_params cdp_params = {0};
 	char __iomem *wrptr;
 	u32 pack = 0;
@@ -2041,7 +2041,7 @@ static u32 sde_hw_rotator_start_no_regdma(struct sde_hw_rotator_context *ctx,
 	/* Write all command stream to Rotator blocks */
 	/* Rotator will start right away after command stream finish writing */
 	while (mem_rdptr < wrptr) {
-		u32 op = REGDMA_OP_MASK & readl_relaxed_no_log(mem_rdptr);
+		u32 op = REGDMA_OP_MASK & readl_relaxed(mem_rdptr);
 
 		switch (op) {
 		case REGDMA_OP_NOP:
@@ -3495,7 +3495,7 @@ static int sde_hw_rotator_validate_entry(struct sde_rot_mgr *mgr,
 	int ret = 0;
 	u16 src_w, src_h, dst_w, dst_h;
 	struct sde_rotation_item *item = &entry->item;
-	struct sde_mdp_format_params *fmt;
+	const struct sde_mdp_format_params *fmt;
 
 	if (!mgr || !entry || !mgr->hw_data) {
 		SDEROT_ERR("invalid parameters\n");

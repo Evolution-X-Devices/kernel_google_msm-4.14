@@ -115,6 +115,13 @@ static int rmnet_vnd_init(struct net_device *dev)
 		return err;
 	}
 
+	/*
+	 * Stacked on the real (ARPHRD_NONE) device: without own classes its
+	 * _xmit_NONE queue lock nests in the real device's and lockdep sees
+	 * recursion. No-op without LOCKDEP.
+	 */
+	netdev_lockdep_set_classes(dev);
+
 	return 0;
 }
 

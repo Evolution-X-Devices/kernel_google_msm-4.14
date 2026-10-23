@@ -4469,6 +4469,7 @@ static void csr_dump_connection_stats(tpAniSirGlobal mac_ctx,
 	sme_debug("bssid: %pM", conn_stats.bssid);
 	sme_debug("rssi: %d dBm", conn_stats.rssi);
 	sme_debug("channel: %d", conn_stats.operating_channel);
+#ifdef WLAN_DEBUG
 	sme_debug("dot11Mode: %s",
 		  csr_get_dot11_mode_str(conn_stats.dot11mode));
 	sme_debug("channel bw: %s",
@@ -4478,6 +4479,7 @@ static void csr_dump_connection_stats(tpAniSirGlobal mac_ctx,
 		  csr_get_auth_type_str(conn_stats.auth_type));
 	sme_debug("Encry-type: %s",
 		  csr_get_encr_type_str(conn_stats.encryption_type));
+#endif
 	sme_debug("is associated?: %s",
 		  (conn_stats.result_code ? "yes" : "no"));
 	sme_debug("+---------CONNECTION INFO END------------+");
@@ -7427,7 +7429,6 @@ static void csr_roam_process_start_bss_success(tpAniSirGlobal mac_ctx,
 	tSirMacAddr bcast_mac = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 	QDF_STATUS status;
 	host_log_ibss_pkt_type *ibss_log;
-	uint32_t bi;
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
 	tSirSmeHTProfile *src_profile = NULL;
 	tCsrRoamHTProfile *dst_profile = NULL;
@@ -7501,6 +7502,7 @@ static void csr_roam_process_start_bss_success(tpAniSirGlobal mac_ctx,
 	WLAN_HOST_DIAG_LOG_ALLOC(ibss_log,
 		host_log_ibss_pkt_type, LOG_WLAN_IBSS_C);
 	if (ibss_log) {
+		uint32_t bi;
 		if (CSR_INVALID_SCANRESULT_HANDLE ==
 				cmd->u.roamCmd.hBSSList) {
 			/*
@@ -7528,6 +7530,7 @@ static void csr_roam_process_start_bss_success(tpAniSirGlobal mac_ctx,
 		WLAN_HOST_DIAG_LOG_REPORT(ibss_log);
 	}
 #endif
+	ibss_log = NULL;
 	/*
 	 * Only set context for non-WDS_STA. We don't even need it for
 	 * WDS_AP. But since the encryption.
@@ -8210,6 +8213,7 @@ static bool csr_roam_process_results(tpAniSirGlobal mac_ctx, tSmeCmd *cmd,
 			WLAN_HOST_DIAG_LOG_REPORT(ibss_log);
 		}
 #endif
+		ibss_log = NULL;
 		start_bss_rsp = (tSirSmeStartBssRsp *)context;
 		qdf_mem_zero(&roam_info, sizeof(roam_info));
 		roam_status = eCSR_ROAM_IBSS_IND;
@@ -13335,6 +13339,7 @@ static QDF_STATUS csr_roam_start_wait_for_key_timer(
 	if (csr_neighbor_roam_is_handoff_in_progress(pMac,
 				     pMac->roam.WaitForKeyTimerInfo.
 				     sessionId)) {
+#ifdef WLAN_DEBUG
 		/* Disable heartbeat timer when hand-off is in progress */
 		sme_debug("disabling HB timer in state: %s sub-state: %s",
 			mac_trace_get_neighbour_roam_state(
@@ -13342,6 +13347,7 @@ static QDF_STATUS csr_roam_start_wait_for_key_timer(
 			mac_trace_getcsr_roam_sub_state(
 				pMac->roam.curSubState[pMac->roam.
 					WaitForKeyTimerInfo.sessionId]));
+#endif
 		cfg_set_int(pMac, WNI_CFG_HEART_BEAT_THRESHOLD, 0);
 	}
 	sme_debug("csrScanStartWaitForKeyTimer");
@@ -13357,7 +13363,6 @@ QDF_STATUS csr_roam_stop_wait_for_key_timer(tpAniSirGlobal pMac)
 	tpCsrNeighborRoamControlInfo pNeighborRoamInfo =
 		&pMac->roam.neighborRoamInfo[pMac->roam.WaitForKeyTimerInfo.
 					     sessionId];
-#endif
 
 	sme_debug("WaitForKey timer stopped in state: %s sub-state: %s",
 		mac_trace_get_neighbour_roam_state(pNeighborRoamInfo->
@@ -13366,6 +13371,7 @@ QDF_STATUS csr_roam_stop_wait_for_key_timer(tpAniSirGlobal pMac)
 						curSubState[pMac->roam.
 							    WaitForKeyTimerInfo.
 							    sessionId]));
+#endif
 	if (csr_neighbor_roam_is_handoff_in_progress(pMac,
 					pMac->roam.WaitForKeyTimerInfo.
 						     sessionId)) {

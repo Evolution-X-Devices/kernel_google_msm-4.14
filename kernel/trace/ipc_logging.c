@@ -911,14 +911,15 @@ int ipc_log_context_destroy(void *ctxt)
 
 	debugfs_remove_recursive(ilctxt->dent);
 
-	spin_lock(&ilctxt->context_lock_lhb1);
+	/* irqsave: every other user holds it under read_lock_irqsave() */
+	spin_lock_irqsave(&ilctxt->context_lock_lhb1, flags);
 	ilctxt->destroyed = true;
 	complete_all(&ilctxt->read_avail);
 	list_for_each_entry_safe(df_info, tmp, &ilctxt->dfunc_info_list, list) {
 		list_del(&df_info->list);
 		kfree(df_info);
 	}
-	spin_unlock(&ilctxt->context_lock_lhb1);
+	spin_unlock_irqrestore(&ilctxt->context_lock_lhb1, flags);
 
 	write_lock_irqsave(&context_list_lock_lha1, flags);
 	list_del(&ilctxt->list);

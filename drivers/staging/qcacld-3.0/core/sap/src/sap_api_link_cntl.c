@@ -148,6 +148,7 @@ static QDF_STATUS sap_hdd_signal_event_handler(void *ctx)
 	return status;
 }
 
+#ifdef FEATURE_WLAN_DIAG_SUPPORT
 /**
  * acs_scan_done_status_str() - parse scan status to string
  * @status: scan status
@@ -172,6 +173,7 @@ static const char *acs_scan_done_status_str(eCsrScanStatus status)
 		return "Unknown";
 	}
 }
+#endif
 
 QDF_STATUS wlansap_pre_start_bss_acs_scan_callback(tHalHandle hal_handle,
 						   struct sap_context *sap_ctx,

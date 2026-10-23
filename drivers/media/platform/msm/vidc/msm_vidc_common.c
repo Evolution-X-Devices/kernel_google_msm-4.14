@@ -4256,9 +4256,13 @@ static void populate_frame_data(struct vidc_frame_data *data,
 	tag_data.index = vb->index;
 	tag_data.type = vb->type;
 
-	msm_comm_fetch_tags(inst, &tag_data);
-	data->input_tag = tag_data.input_tag;
-	data->output_tag = tag_data.output_tag;
+	if (msm_comm_fetch_tags(inst, &tag_data)) {
+		data->input_tag = tag_data.input_tag;
+		data->output_tag = tag_data.output_tag;
+	} else {
+		data->input_tag = 0;
+		data->output_tag = 0;
+	}
 
 
 	extra_idx = EXTRADATA_IDX(vb->num_planes);
@@ -4895,6 +4899,7 @@ int msm_comm_release_scratch_buffers(struct msm_vidc_inst *inst,
 	struct msm_vidc_core *core;
 	struct hfi_device *hdev;
 	enum hal_buffer sufficiency = HAL_BUFFER_NONE;
+	LIST_HEAD(release_list);
 
 	if (!inst) {
 		dprintk(VIDC_ERR,
@@ -4924,8 +4929,17 @@ int msm_comm_release_scratch_buffers(struct msm_vidc_inst *inst,
 					HAL_BUFFER_INTERNAL_SCRATCH_2);
 	}
 
+	/*
+	 * Don't hold scratchbufs.lock across the HFI release (hdevice->lock
+	 * and a firmware round trip): the list lock is also taken under the
+	 * vb2 queue's mmap_lock. Take the buffers off the list, release them,
+	 * then put back the ones kept for reuse.
+	 */
 	mutex_lock(&inst->scratchbufs.lock);
-	list_for_each_entry_safe(buf, dummy, &inst->scratchbufs.list, list) {
+	list_splice_init(&inst->scratchbufs.list, &release_list);
+	mutex_unlock(&inst->scratchbufs.lock);
+
+	list_for_each_entry_safe(buf, dummy, &release_list, list) {
 		handle = &buf->smem;
 		buffer_info.buffer_size = handle->size;
 		buffer_info.buffer_type = buf->buffer_type;
@@ -4935,14 +4949,12 @@ int msm_comm_release_scratch_buffers(struct msm_vidc_inst *inst,
 		rc = call_hfi_op(hdev, session_release_buffers,
 				(void *)inst->session, &buffer_info);
 		if (!rc) {
-			mutex_unlock(&inst->scratchbufs.lock);
 			rc = wait_for_sess_signal_receipt(inst,
 				HAL_SESSION_RELEASE_BUFFER_DONE);
 			if (rc)
 				dprintk(VIDC_WARN,
 					"%s: wait for signal failed, rc %d\n",
 					__func__, rc);
-			mutex_lock(&inst->scratchbufs.lock);
 		} else {
 			dprintk(VIDC_WARN,
 				"Rel scrtch buf fail:%x, %d\n",
@@ -4959,6 +4971,9 @@ int msm_comm_release_scratch_buffers(struct msm_vidc_inst *inst,
 		kfree(buf);
 	}
 
+	/* what is left is kept for reuse */
+	mutex_lock(&inst->scratchbufs.lock);
+	list_splice_tail(&release_list, &inst->scratchbufs.list);
 	mutex_unlock(&inst->scratchbufs.lock);
 	return rc;
 }
@@ -6762,7 +6777,7 @@ put_ref:
 	while (planes)
 		msm_smem_put_dma_buf((struct dma_buf *)dma_planes[--planes]);
 
-	return rc ? ERR_PTR(rc) : mbuf;
+	return rc ? ((rc == -EEXIST && !inst->batch.enable) ? ERR_PTR(rc):mbuf) : mbuf;
 }
 
 void msm_comm_put_vidc_buffer(struct msm_vidc_inst *inst,
@@ -7052,7 +7067,7 @@ exit:
 	mutex_unlock(&inst->buffer_tags.lock);
 }
 
-void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
+bool msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 	struct vidc_tag_data *tag_data)
 {
 	struct vidc_tag_data *temp, *next;
@@ -7060,7 +7075,7 @@ void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 	if (!inst || !tag_data) {
 		dprintk(VIDC_ERR, "%s: invalid params %pK %pK\n",
 				__func__, inst, tag_data);
-		return;
+		return false;
 	}
 	mutex_lock(&inst->buffer_tags.lock);
 	list_for_each_entry_safe(temp, next, &inst->buffer_tags.list, list) {
@@ -7068,10 +7083,13 @@ void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 				temp->type == tag_data->type) {
 			tag_data->input_tag = temp->input_tag;
 			tag_data->output_tag = temp->output_tag;
-			break;
+			mutex_unlock(&inst->buffer_tags.lock);
+			return true;
 		}
 	}
 	mutex_unlock(&inst->buffer_tags.lock);
+
+	return false;
 }
 
 void msm_comm_store_mark_data(struct msm_vidc_list *data_list,

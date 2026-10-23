@@ -305,7 +305,7 @@ qdf_nbuf_t ol_tx_send_ipa_data_frame(struct cdp_vdev *vdev, qdf_nbuf_t skb)
 }
 #endif
 
-#if defined(FEATURE_TSO)
+#if defined(FEATURE_TSO) && defined(FEATURE_TSO_DEBUG)
 /**
  * ol_tx_tso_update_stats() - update TSO stats
  * @pdev: pointer to ol_txrx_pdev_t structure

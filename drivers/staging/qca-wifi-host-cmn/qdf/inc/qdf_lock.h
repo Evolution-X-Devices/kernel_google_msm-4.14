@@ -232,7 +232,25 @@ typedef __qdf_mutex_t qdf_mutex_t;
 
 /* function Declaration */
 QDF_STATUS qdf_mutex_create(qdf_mutex_t *m, const char *func, int line);
+#ifdef CONFIG_LOCKDEP
+/*
+ * mutex_init() runs once inside qdf_mutex_create(), so all qdf mutexes shared
+ * one lockdep class (sme global lock -> csr_ll_lock looked recursive). Give
+ * each call site its own class, named after the lock -- only on success: a
+ * failed create may be an already initialized (even held) mutex.
+ */
+#define qdf_mutex_create(m) ({						\
+	static struct lock_class_key __qdf_mutex_key;			\
+	QDF_STATUS __qdf_mutex_status =				\
+		qdf_mutex_create(m, __func__, __LINE__);		\
+	if (__qdf_mutex_status == QDF_STATUS_SUCCESS)			\
+		lockdep_set_class_and_name(&(m)->m_lock,		\
+					   &__qdf_mutex_key, #m);	\
+	__qdf_mutex_status;						\
+})
+#else
 #define qdf_mutex_create(m) qdf_mutex_create(m, __func__, __LINE__)
+#endif
 
 QDF_STATUS qdf_mutex_acquire(qdf_mutex_t *m);
 
@@ -254,7 +272,23 @@ static inline void qdf_spinlock_create(qdf_spinlock_t *lock, const char *func,
 	qdf_lock_stats_create(&lock->stats, func, line);
 }
 
+#ifdef CONFIG_LOCKDEP
+/*
+ * spin_lock_init() runs inside the static inline __qdf_spinlock_create(), so
+ * every qdf spinlock of one source file got the same lockdep class and any
+ * nesting of two of them (HTC lookup_queue_lock -> HTCTxLock, DFS radarq ->
+ * eventq) looked like recursive locking, which turns lockdep off. Give each
+ * call site its own class, named after the lock, like spin_lock_init() does.
+ */
+#define qdf_spinlock_create(x) do {					\
+	static struct lock_class_key __qdf_spinlock_key;		\
+	qdf_spinlock_create(x, __func__, __LINE__);			\
+	lockdep_set_class_and_name(&(x)->lock.spinlock,		\
+				   &__qdf_spinlock_key, #x);		\
+} while (0)
+#else
 #define qdf_spinlock_create(x) qdf_spinlock_create(x, __func__, __LINE__)
+#endif
 
 /**
  * qdf_spinlock_destroy - Delete a spinlock

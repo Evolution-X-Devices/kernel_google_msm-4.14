@@ -67,6 +67,24 @@ struct cal_type_data {
 int cal_utils_create_cal_types(int num_cal_types,
 			struct cal_type_data **cal_type,
 			struct cal_type_info *info);
+#ifdef CONFIG_LOCKDEP
+#include <linux/lockdep.h>
+void cal_utils_set_lock_class(int num_cal_types,
+			struct cal_type_data **cal_type,
+			struct lock_class_key *key);
+/*
+ * All cal type locks are initialised in one place, so every module's cal
+ * types (AFE, ADM, ASM, voice, ...) shared one lockdep class and their
+ * independent lock chains looked like cycles. One class per calling module.
+ */
+#define cal_utils_create_cal_types(num, cal_type, info) ({		\
+	static struct lock_class_key __cal_type_key;			\
+	int __cal_ret = cal_utils_create_cal_types(num, cal_type, info);	\
+	if (__cal_ret == 0)						\
+		cal_utils_set_lock_class(num, cal_type, &__cal_type_key);	\
+	__cal_ret;							\
+})
+#endif
 void cal_utils_destroy_cal_types(int num_cal_types,
 			struct cal_type_data **cal_type);
 

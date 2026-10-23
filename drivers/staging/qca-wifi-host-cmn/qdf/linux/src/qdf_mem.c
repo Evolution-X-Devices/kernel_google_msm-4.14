@@ -678,6 +678,8 @@ static inline void qdf_mem_kmalloc_inc(qdf_size_t size) {}
 static inline void qdf_mem_dma_inc(qdf_size_t size) {}
 static inline void qdf_mem_kmalloc_dec(qdf_size_t size) {}
 static inline void qdf_mem_dma_dec(qdf_size_t size) {}
+void qdf_mem_skb_inc(qdf_size_t size) {}
+void qdf_mem_skb_dec(qdf_size_t size) {}
 
 
 static QDF_STATUS qdf_mem_debugfs_init(void)
@@ -1014,7 +1016,10 @@ qdf_mem_domain_check_for_leaks(enum qdf_debug_domain domain,
 
 	qdf_err("Memory leaks detected in %s domain!",
 		qdf_debug_domain_name(domain));
+#ifdef WLAN_DEBUGFS
+	/* the per-allocation printer is only built with WLAN_DEBUGFS */
 	qdf_mem_domain_print(mem_list, qdf_err_printer, NULL);
+#endif
 
 	return mem_list->count;
 }
@@ -1879,4 +1884,5 @@ void qdf_ether_addr_copy(void *dst_addr, const void *src_addr)
 	ether_addr_copy(dst_addr, src_addr);
 }
 qdf_export_symbol(qdf_ether_addr_copy);
+
 

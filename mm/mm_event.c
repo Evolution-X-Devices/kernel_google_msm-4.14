@@ -25,18 +25,22 @@ static void record_vmstat(void)
 {
 	int cpu;
 	struct mm_event_vmstat vmstat;
+	unsigned long flags;
 
 	if (time_is_after_jiffies(vmstat_next_period))
 		return;
 
-	/* Need double check under the lock */
-	spin_lock(&vmstat_lock);
+	/*
+	 * Need double check under the lock. irqsave: record_stat() also runs
+	 * in hard irq (ufshcd_complete_lrb -> mm_event_record).
+	 */
+	spin_lock_irqsave(&vmstat_lock, flags);
 	if (time_is_after_jiffies(vmstat_next_period)) {
-		spin_unlock(&vmstat_lock);
+		spin_unlock_irqrestore(&vmstat_lock, flags);
 		return;
 	}
 	vmstat_next_period = jiffies + msecs_to_jiffies(vmstat_period_ms);
-	spin_unlock(&vmstat_lock);
+	spin_unlock_irqrestore(&vmstat_lock, flags);
 
 	memset(&vmstat, 0, sizeof(vmstat));
 	vmstat.free = global_zone_page_state(NR_FREE_PAGES);
@@ -114,12 +118,15 @@ static struct dentry *mm_event_root;
 
 static int period_ms_set(void *data, u64 val)
 {
+	unsigned long flags;
+
 	if (val < 1 || val > ULONG_MAX)
 		return -EINVAL;
 
-	write_lock(&period_lock);
+	/* irqsave: record_stat() takes period_lock for reading in hard irq */
+	write_lock_irqsave(&period_lock, flags);
 	period_ms = (unsigned long)val;
-	write_unlock(&period_lock);
+	write_unlock_irqrestore(&period_lock, flags);
 	return 0;
 }
 
@@ -134,20 +141,24 @@ static int period_ms_get(void *data, u64 *val)
 
 static int vmstat_period_ms_set(void *data, u64 val)
 {
+	unsigned long flags;
+
 	if (val < 1 || val > ULONG_MAX)
 		return -EINVAL;
 
-	spin_lock(&vmstat_lock);
+	spin_lock_irqsave(&vmstat_lock, flags);
 	vmstat_period_ms = (unsigned long)val;
-	spin_unlock(&vmstat_lock);
+	spin_unlock_irqrestore(&vmstat_lock, flags);
 	return 0;
 }
 
 static int vmstat_period_ms_get(void *data, u64 *val)
 {
-	spin_lock(&vmstat_lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&vmstat_lock, flags);
 	*val = vmstat_period_ms;
-	spin_unlock(&vmstat_lock);
+	spin_unlock_irqrestore(&vmstat_lock, flags);
 	return 0;
 }
 

@@ -4377,6 +4377,17 @@ int cam_isp_context_init(struct cam_isp_context *ctx,
 	}
 
 	/* link camera context with isp context */
+	/*
+	 * cam_context_init() gives every camera context's lock one lockdep
+	 * class; ISP contexts take it from the IRQ tasklet (always _bh),
+	 * other context types with plain spin_lock() in process context only.
+	 */
+	{
+		static struct lock_class_key isp_ctx_lock_key;
+
+		lockdep_set_class(&ctx_base->lock, &isp_ctx_lock_key);
+	}
+
 	ctx_base->state_machine = cam_isp_ctx_top_state_machine;
 	ctx_base->ctx_priv = ctx;
 

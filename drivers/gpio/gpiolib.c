@@ -3806,13 +3806,11 @@ static struct dentry *debugfs_base;
 
 static int list_gpios_show(struct seq_file *s, void *v)
 {
-	struct gpio_device *gdev = v;
-	struct gpio_chip *chip = gdev->chip;
-
-	if (chip->gpio_dump) {
-		msm_gpio_dump(s);
-		pmic_gpio_dump(s);
-	}
+	/*
+	 * The msm GPIO status dump this printed was reverted (37ed4e4fe6c1,
+	 * gpio_chip.gpio_dump and msm_gpio_dump are gone); only the debugfs
+	 * file is left.
+	 */
 	return 0;
 }
 

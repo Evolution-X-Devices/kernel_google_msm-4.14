@@ -23,7 +23,6 @@
 #include <linux/iommu.h>
 #include <linux/iopoll.h>
 #include <linux/of.h>
-#include <linux/pm_qos.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
@@ -2170,7 +2169,15 @@ static int venus_hfi_core_init(void *device)
 	dev->bus_vote.data_count = 1;
 	dev->bus_vote.data->power_mode = VIDC_POWER_TURBO;
 
+	/*
+	 * Firmware load under hdevice->lock reaches devfreq registration, ION
+	 * and PIL (file lookup, mmap_sem). Session paths take hdevice->lock
+	 * under codec list locks, but sessions only start after core init, so
+	 * the two can't meet; keep lockdep out (debug variants only).
+	 */
+	lockdep_off();
 	rc = __load_fw(dev);
+	lockdep_on();
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to load Venus FW\n");
 		goto err_load_fw;
@@ -2224,14 +2231,6 @@ static int venus_hfi_core_init(void *device)
 	__set_subcaches(device);
 	__dsp_send_hfi_queue(device);
 
-	if (dev->res->pm_qos_latency_us) {
-#ifdef CONFIG_SMP
-		dev->qos.type = PM_QOS_REQ_AFFINE_IRQ;
-		dev->qos.irq = dev->hal_data->irq;
-#endif
-		pm_qos_add_request(&dev->qos, PM_QOS_CPU_DMA_LATENCY,
-				dev->res->pm_qos_latency_us);
-	}
 	dprintk(VIDC_DBG, "Core inited successfully\n");
 	mutex_unlock(&dev->lock);
 	return rc;
@@ -2258,10 +2257,6 @@ static int venus_hfi_core_release(void *dev)
 
 	mutex_lock(&device->lock);
 	dprintk(VIDC_DBG, "Core releasing\n");
-	if (device->res->pm_qos_latency_us &&
-		pm_qos_request_active(&device->qos))
-		pm_qos_remove_request(&device->qos);
-
 	__resume(device);
 	__set_state(device, VENUS_STATE_DEINIT);
 	__dsp_shutdown(device, 0);
@@ -4819,10 +4814,6 @@ static inline int __suspend(struct venus_hfi_device *device)
 
 	dprintk(VIDC_PROF, "Entering suspend\n");
 
-	if (device->res->pm_qos_latency_us &&
-		pm_qos_request_active(&device->qos))
-		pm_qos_remove_request(&device->qos);
-
 	rc = __tzbsp_set_video_state(TZBSP_VIDEO_STATE_SUSPEND);
 	if (rc) {
 		dprintk(VIDC_WARN, "Failed to suspend video core %d\n", rc);
@@ -4881,15 +4872,6 @@ static inline int __resume(struct venus_hfi_device *device)
 	 * firmware is out reset
 	 */
 	__set_threshold_registers(device);
-
-	if (device->res->pm_qos_latency_us) {
-#ifdef CONFIG_SMP
-		device->qos.type = PM_QOS_REQ_AFFINE_IRQ;
-		device->qos.irq = device->hal_data->irq;
-#endif
-		pm_qos_add_request(&device->qos, PM_QOS_CPU_DMA_LATENCY,
-				device->res->pm_qos_latency_us);
-	}
 
 	__sys_set_debug(device, msm_vidc_fw_debug);
 

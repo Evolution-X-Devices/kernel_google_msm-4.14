@@ -436,6 +436,7 @@ struct cgroup_root {
 
 	/* A list running through the active hierarchies */
 	struct list_head root_list;
+	struct rcu_head rcu;	/* freed via kfree_rcu (cgroup_free_root) */
 
 	/* Hierarchy-specific flags */
 	unsigned int flags;

@@ -1183,42 +1183,51 @@ int ion_query_heaps(struct ion_heap_query *query)
 	struct ion_heap_data __user *buffer = u64_to_user_ptr(query->heaps);
 	int ret = -EINVAL, cnt = 0, max_cnt;
 	struct ion_heap *heap;
-	struct ion_heap_data hdata;
+	struct ion_heap_data *hdata;
 
-	memset(&hdata, 0, sizeof(hdata));
-
-	down_read(&dev->lock);
 	if (!buffer) {
+		down_read(&dev->lock);
 		query->cnt = dev->heap_cnt;
-		ret = 0;
-		goto out;
+		up_read(&dev->lock);
+		return 0;
 	}
 
 	if (query->cnt <= 0)
-		goto out;
+		return -EINVAL;
 
-	max_cnt = query->cnt;
+	/*
+	 * Snapshot under dev->lock, copy to userspace after dropping it: a user
+	 * copy can fault (mmap_sem), and ION is allocated from under driver
+	 * locks that mmap_sem paths lead back to (msm_vidc hdevice->lock).
+	 * Heap ids are a bitmask, so there are at most ION_NUM_HEAP_IDS heaps.
+	 */
+	max_cnt = min_t(int, query->cnt, ION_NUM_HEAP_IDS);
+	hdata = kcalloc(max_cnt, sizeof(*hdata), GFP_KERNEL);
+	if (!hdata)
+		return -ENOMEM;
 
+	down_read(&dev->lock);
 	plist_for_each_entry(heap, &dev->heaps, node) {
-		strlcpy(hdata.name, heap->name, sizeof(hdata.name));
-		hdata.name[sizeof(hdata.name) - 1] = '\0';
-		hdata.type = heap->type;
-		hdata.heap_id = heap->id;
-
-		if (copy_to_user(&buffer[cnt], &hdata, sizeof(hdata))) {
-			ret = -EFAULT;
-			goto out;
-		}
+		strlcpy(hdata[cnt].name, heap->name, sizeof(hdata[cnt].name));
+		hdata[cnt].name[sizeof(hdata[cnt].name) - 1] = '\0';
+		hdata[cnt].type = heap->type;
+		hdata[cnt].heap_id = heap->id;
 
 		cnt++;
 		if (cnt >= max_cnt)
 			break;
 	}
+	up_read(&dev->lock);
+
+	if (copy_to_user(buffer, hdata, cnt * sizeof(*hdata))) {
+		ret = -EFAULT;
+		goto out;
+	}
 
 	query->cnt = cnt;
 	ret = 0;
 out:
-	up_read(&dev->lock);
+	kfree(hdata);
 	return ret;
 }
 

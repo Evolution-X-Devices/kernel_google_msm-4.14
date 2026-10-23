@@ -87,6 +87,12 @@ static DEFINE_MUTEX(list_lock);
 
 static int use_cnt;
 static DEFINE_MUTEX(state_lock);
+/*
+ * Guards use_cnt in register_bw_hwmon() only. Not state_lock: the governor
+ * event handler takes state_lock under devfreq_list_lock + event_lock
+ * (governor_store), while devfreq_add_governor() takes devfreq_list_lock.
+ */
+static DEFINE_MUTEX(register_lock);
 
 #define show_attr(name) \
 static ssize_t show_##name(struct device *dev,				\
@@ -989,12 +995,12 @@ int register_bw_hwmon(struct device *dev, struct bw_hwmon *hwmon)
 	if (hwmon->gov) {
 		ret = devfreq_add_governor(hwmon->gov);
 	} else {
-		mutex_lock(&state_lock);
+		mutex_lock(&register_lock);
 		if (!use_cnt)
 			ret = devfreq_add_governor(&devfreq_gov_bw_hwmon);
 		if (!ret)
 			use_cnt++;
-		mutex_unlock(&state_lock);
+		mutex_unlock(&register_lock);
 	}
 
 	if (!ret)

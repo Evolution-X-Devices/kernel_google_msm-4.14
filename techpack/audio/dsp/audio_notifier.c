@@ -52,6 +52,8 @@ struct service_info {
 	int                             num_of_clients;
 	/* List of all clients registered to the service and domain */
 	struct srcu_notifier_head       client_nb_list;
+	/* Set by a service callback, so registration keeps its newer state */
+	bool                            cb_state_set;
 };
 
 static int audio_notifer_ssr_adsp_cb(struct notifier_block *this,
@@ -105,9 +107,20 @@ static struct service_info service_data[AUDIO_NOTIFIER_MAX_SERVICES]
 	} }
 };
 
+static bool audio_notif_drv_registered;
+
 /* Master list of all audio notifier clients */
 struct list_head   client_list;
 struct mutex       notifier_mutex;
+/*
+ * Serialises service callbacks (state + client notification) with client
+ * registration. Separate from notifier_mutex: the service-notifier calls
+ * our callback with its notif_add_lock/service_list_lock held, and we
+ * register with it (taking those locks) under notifier_mutex, so the
+ * callback must not take notifier_mutex. Order: notifier_mutex ->
+ * service-notifier locks -> notifier_cb_mutex; nothing nests inside it.
+ */
+static DEFINE_MUTEX(notifier_cb_mutex);
 
 static int audio_notifer_get_default_service(int domain)
 {
@@ -161,6 +174,10 @@ static int audio_notifer_reg_service(int service, int domain)
 	int ret = 0;
 	int curr_state = AUDIO_NOTIFIER_SERVICE_DOWN;
 
+	mutex_lock(&notifier_cb_mutex);
+	service_data[service][domain].cb_state_set = false;
+	mutex_unlock(&notifier_cb_mutex);
+
 	switch (service) {
 	case AUDIO_NOTIFIER_SSR_SERVICE:
 		handle = audio_ssr_register(
@@ -189,8 +206,12 @@ static int audio_notifer_reg_service(int service, int domain)
 		ret = -EINVAL;
 		goto done;
 	}
-	service_data[service][domain].state = curr_state;
+	mutex_lock(&notifier_cb_mutex);
+	/* a callback may already have delivered a newer state */
+	if (!service_data[service][domain].cb_state_set)
+		service_data[service][domain].state = curr_state;
 	service_data[service][domain].handle = handle;
+	mutex_unlock(&notifier_cb_mutex);
 
 	pr_info("%s: service %s is in use\n",
 		__func__, service_data[service][domain].name);
@@ -267,6 +288,7 @@ static int audio_notifer_reg_client_service(struct client_data *client_data,
 	}
 
 	client_data->service = service;
+	mutex_lock(&notifier_cb_mutex);
 	srcu_notifier_chain_register(
 		&service_data[service][domain].client_nb_list,
 		client_data->nb);
@@ -287,6 +309,7 @@ static int audio_notifer_reg_client_service(struct client_data *client_data,
 		(void)client_data->nb->notifier_call(client_data->nb,
 			service_data[service][domain].state, &data);
 	}
+	mutex_unlock(&notifier_cb_mutex);
 done:
 	return ret;
 }
@@ -462,9 +485,10 @@ static int audio_notifer_service_cb(unsigned long opcode,
 	pr_debug("%s: service %s, opcode 0x%lx\n",
 		__func__, service_data[service][domain].name, notifier_opcode);
 
-	mutex_lock(&notifier_mutex);
+	mutex_lock(&notifier_cb_mutex);
 
 	service_data[service][domain].state = notifier_opcode;
+	service_data[service][domain].cb_state_set = true;
 	ret = srcu_notifier_call_chain(&service_data[service][domain].
 		client_nb_list, notifier_opcode, &data);
 	if (ret < 0)
@@ -472,7 +496,7 @@ static int audio_notifer_service_cb(unsigned long opcode,
 			__func__, ret, service_data[service][domain].name,
 			notifier_opcode);
 
-	mutex_unlock(&notifier_mutex);
+	mutex_unlock(&notifier_cb_mutex);
 done:
 	return NOTIFY_OK;
 }
@@ -541,6 +565,11 @@ int audio_notifier_register(char *client_name, int domain,
 	int ret;
 	struct client_data *client_data;
 
+	if (!audio_notif_drv_registered) {
+		pr_err("%s: driver is not ready. Deferring...\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
 	if (client_name == NULL) {
 		pr_err("%s: client_name is NULL\n", __func__);
 		ret = -EINVAL;
@@ -608,7 +637,7 @@ static int __init audio_notifier_late_init(void)
 	mutex_lock(&notifier_mutex);
 	if (!audio_notifer_is_service_enabled(AUDIO_NOTIFIER_PDR_SERVICE))
 		audio_notifer_reg_all_clients();
-
+	audio_notif_drv_registered = true;
 	mutex_unlock(&notifier_mutex);
 	return 0;
 }

@@ -108,6 +108,14 @@ void host_diag_log_submit(void *plog_hdr_ptr);
 #define WLAN_HOST_DIAG_LOG_REPORT(payload_ptr)
 #define WLAN_HOST_DIAG_LOG_FREE(payload_ptr)
 
+static inline void host_diag_log_set_code(void *ptr, uint16_t code)
+{
+}
+
+static inline void host_diag_log_set_length(void *ptr, uint16_t length)
+{
+}
+
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
 
 /*-------------------------------------------------------------------------

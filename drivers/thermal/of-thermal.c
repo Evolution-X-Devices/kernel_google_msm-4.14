@@ -954,6 +954,8 @@ static int devm_thermal_zone_of_sensor_match(struct device *dev, void *res,
 	return *r == data;
 }
 
+static struct lock_class_key virt_tz_lock_key;
+
 /**
  * devm_thermal_of_virtual_sensor_register - Register a virtual sensor.
  *	Three types of virtual sensors are supported.
@@ -1062,6 +1064,13 @@ struct thermal_zone_device *devm_thermal_of_virtual_sensor_register(
 	sens_param->trip_high = INT_MAX;
 	sens_param->trip_low = INT_MIN;
 	mutex_init(&sens_param->lock);
+
+	/*
+	 * A virtual zone reads its sensor zones' temperature with its own
+	 * tz->lock held; give it its own lock class so lockdep does not see
+	 * that as recursive locking of one class.
+	 */
+	lockdep_set_class(&tzd->lock, &virt_tz_lock_key);
 
 	mutex_lock(&tzd->lock);
 	tz = tzd->devdata;

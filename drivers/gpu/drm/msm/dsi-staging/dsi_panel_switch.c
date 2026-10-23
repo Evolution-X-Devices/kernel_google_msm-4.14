@@ -86,12 +86,6 @@ static inline bool is_display_mode_same(const struct dsi_display_mode *m1,
 	return m1 && m2 && m1->timing.refresh_rate == m2->timing.refresh_rate;
 }
 
-static inline void sde_atrace_mode_fps(const struct panel_switch_data *pdata,
-				       const struct dsi_display_mode *mode)
-{
-	sde_atrace('C', pdata->thread, "FPS", mode->timing.refresh_rate);
-}
-
 ssize_t panel_dsi_write_buf(struct dsi_panel *panel,
 			    const void *data, size_t len, bool send_last)
 {
@@ -138,11 +132,6 @@ static void panel_handle_te(struct dsi_display_te_listener *tl)
 
 	complete(&pdata->te_completion);
 
-	if (likely(pdata->thread)) {
-		/* 1-bit counter that shows up in panel thread timeline */
-		sde_atrace('C', pdata->thread, "TE_VSYNC",
-			   atomic_inc_return(&pdata->te_counter) & 1);
-	}
 }
 
 static void panel_switch_cmd_set_transfer(struct panel_switch_data *pdata,
@@ -233,7 +222,6 @@ static void panel_switch_worker(struct kthread_work *work)
 				jiffies_to_usecs(timeout - rc));
 	}
 
-	sde_atrace_mode_fps(pdata, mode);
 	SDE_ATRACE_END(__func__);
 
 	/*
@@ -394,7 +382,6 @@ static int panel_idle(struct dsi_panel *panel)
 		pdata->display_mode = idle_mode;
 		panel_switch_to_mode(pdata, idle_mode);
 
-		sde_atrace_mode_fps(pdata, idle_mode);
 	}
 	mutex_unlock(&panel->panel_lock);
 

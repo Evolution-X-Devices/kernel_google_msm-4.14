@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  */
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/trace_msm_bus.h>
+
+#undef pr_fmt
 #define pr_fmt(fmt) "AXI: %s(): " fmt, __func__
 
 #include <linux/kernel.h>

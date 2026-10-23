@@ -212,33 +212,12 @@ static inline void qdf_wow_wakeup_host_event(uint8_t wow_wakeup_cause)
 	return;
 }
 
-static inline void host_log_acs_req_event(uint8_t *intf, uint8_t *hw_mode,
-					  uint16_t bw, uint8_t ht, uint8_t vht,
-					  uint16_t chan_start,
-					  uint16_t chan_end)
-{
-}
+#define host_log_acs_req_event(...) ((void)0)
+#define host_log_acs_scan_start(...) ((void)0)
+#define host_log_acs_scan_done(...) ((void)0)
+#define host_log_acs_chan_spect_weight(...) ((void)0)
+#define host_log_acs_best_chan(...) ((void)0)
 
-static inline void host_log_acs_scan_start(uint8_t *scan_type,
-					   uint8_t *bss_type, uint32_t scan_id,
-					   uint8_t vdev_id)
-{
-}
-
-static inline void host_log_acs_scan_done(const uint8_t *status,
-					  uint8_t vdev_id, uint32_t scan_id)
-{
-}
-
-static inline void host_log_acs_chan_spect_weight(uint16_t chan,
-						  uint16_t weight, int32_t rssi,
-						  uint16_t bss_count)
-{
-}
-
-static inline void host_log_acs_best_chan(uint16_t chan, uint32_t weight)
-{
-}
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
 #ifdef __cplusplus
 }

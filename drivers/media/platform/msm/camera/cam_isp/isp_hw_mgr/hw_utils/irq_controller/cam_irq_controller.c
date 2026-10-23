@@ -214,6 +214,20 @@ int cam_irq_controller_init(const char       *name,
 		INIT_LIST_HEAD(&controller->th_list_head[i]);
 
 	spin_lock_init(&controller->lock);
+#ifdef CONFIG_LOCKDEP
+	{
+		/*
+		 * Controllers nest (VFE top -> VFE bus handle_irq); one lockdep
+		 * class per controller so the nesting isn't seen as recursion.
+		 */
+		static struct lock_class_key keys[32];
+		static atomic_t next = ATOMIC_INIT(0);
+		int k = atomic_inc_return(&next) - 1;
+
+		lockdep_set_class_and_name(&controller->lock,
+			&keys[min(k, (int)ARRAY_SIZE(keys) - 1)], name);
+	}
+#endif
 
 	controller->hdl_idx = 1;
 	*irq_controller = controller;
@@ -708,9 +722,9 @@ irqreturn_t cam_irq_controller_handle_irq(int irq_num, void *priv)
 			if (irq_register->top_half_enable_mask[j] &
 				controller->irq_status_arr[i])
 				need_th_processing[j] = true;
-				CAM_DBG(CAM_IRQ_CTRL,
-					"i %d j %d need_th_processing = %d",
-					i, j, need_th_processing[j]);
+			CAM_DBG(CAM_IRQ_CTRL,
+				"i %d j %d need_th_processing = %d",
+				i, j, need_th_processing[j]);
 		}
 	}
 

@@ -80,7 +80,10 @@ int cam_sync_init_group_object(struct sync_table_row *table,
 	 */
 	for (i = 0; i < num_objs; i++) {
 		child_row = table + sync_objs[i];
-		spin_lock_bh(&sync_dev->row_spinlocks[sync_objs[i]]);
+		/* child row under the group row (cam_sync_merge): one lockdep class */
+		local_bh_disable();
+		spin_lock_nested(&sync_dev->row_spinlocks[sync_objs[i]],
+			SINGLE_DEPTH_NESTING);
 
 		/* validate child */
 		if ((child_row->type == CAM_SYNC_TYPE_GROUP) ||
@@ -140,7 +143,10 @@ int cam_sync_init_group_object(struct sync_table_row *table,
 clean_children_info:
 	row->state = CAM_SYNC_STATE_INVALID;
 	for (i = i-1; i >= 0; i--) {
-		spin_lock_bh(&sync_dev->row_spinlocks[sync_objs[i]]);
+		/* child row under the group row (cam_sync_merge): one lockdep class */
+		local_bh_disable();
+		spin_lock_nested(&sync_dev->row_spinlocks[sync_objs[i]],
+			SINGLE_DEPTH_NESTING);
 		child_row = table + sync_objs[i];
 		cam_sync_util_cleanup_parents_list(child_row,
 			SYNC_LIST_CLEAN_ONE, idx);

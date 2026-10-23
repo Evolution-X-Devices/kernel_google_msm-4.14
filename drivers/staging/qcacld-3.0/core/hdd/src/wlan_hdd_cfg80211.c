@@ -4233,7 +4233,9 @@ static int __wlan_hdd_cfg80211_disable_dfs_chan_scan(struct wiphy *wiphy,
 	int ret_val;
 	uint32_t no_dfs_flag = 0;
 
+#ifdef WLAN_DEBUG
 	hdd_enter_dev(dev);
+#endif
 
 	ret_val = wlan_hdd_validate_context(hdd_ctx);
 	if (ret_val)
@@ -20218,9 +20220,9 @@ static void hdd_print_netdev_txq_status(struct net_device *dev)
 	for (i = 0; i < dev->num_tx_queues; i++) {
 #ifdef WLAN_DEBUG
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
-#endif
 
 		hdd_debug("netdev tx queue[%u] state: 0x%lx", i, txq->state);
+#endif
 	}
 }
 

@@ -1058,10 +1058,20 @@ int snd_pcm_attach_substream(struct snd_pcm *pcm, int stream,
 void snd_pcm_detach_substream(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime;
-	unsigned long flags = 0;
+	unsigned long flags = 0, tflags = 0;
 
 	if (PCM_RUNTIME_CHECK(substream))
 		return;
+	/*
+	 * Lock order timer->lock -> runtime_lock, as snd_timer_notify() and
+	 * snd_timer_interrupt() (period elapsed) do when they call
+	 * snd_pcm_timer_resolution(). Taking runtime_lock first deadlocked
+	 * against a period irq on another CPU; and the old inner
+	 * spin_unlock_irq(&timer->lock) re-enabled irqs while runtime_lock
+	 * (irqsave) was still held.
+	 */
+	if (substream->timer)
+		spin_lock_irqsave(&substream->timer->lock, tflags);
 	spin_lock_irqsave(&substream->runtime_lock, flags);
 	runtime = substream->runtime;
 	if (runtime->private_free != NULL)
@@ -1072,17 +1082,15 @@ void snd_pcm_detach_substream(struct snd_pcm_substream *substream)
 		       PAGE_ALIGN(sizeof(struct snd_pcm_mmap_control)));
 	kfree(runtime->hw_constraints.rules);
 	/* Avoid concurrent access to runtime via PCM timer interface */
-	if (substream->timer)
-		spin_lock_irq(&substream->timer->lock);
 	substream->runtime = NULL;
-	if (substream->timer)
-		spin_unlock_irq(&substream->timer->lock);
 	mutex_destroy(&runtime->buffer_mutex);
 	kfree(runtime);
 	put_pid(substream->pid);
 	substream->pid = NULL;
 	substream->pstr->substream_opened--;
 	spin_unlock_irqrestore(&substream->runtime_lock, flags);
+	if (substream->timer)
+		spin_unlock_irqrestore(&substream->timer->lock, tflags);
 }
 
 static ssize_t show_pcm_class(struct device *dev,

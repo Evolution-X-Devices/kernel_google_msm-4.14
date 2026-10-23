@@ -2380,7 +2380,12 @@ static void ol_txrx_pdev_detach(struct cdp_pdev *ppdev, int force)
 
 	htt_pdev_free(pdev->htt_pdev);
 	ol_txrx_peer_find_detach(pdev);
-	qdf_flush_work(&pdev->peer_unmap_timer_work);
+	/*
+	 * Only created by peer_unmap_timer_handler() when an unmap times out;
+	 * flushing the never-initialized (zeroed) work is flushing garbage.
+	 */
+	if (pdev->peer_unmap_timer_work.fn)
+		qdf_flush_work(&pdev->peer_unmap_timer_work);
 	ol_txrx_tso_stats_deinit(pdev);
 	ol_txrx_fw_stats_desc_pool_deinit(pdev);
 

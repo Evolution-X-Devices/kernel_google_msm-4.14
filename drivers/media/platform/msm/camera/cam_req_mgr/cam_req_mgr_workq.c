@@ -13,6 +13,8 @@
 #include "cam_req_mgr_workq.h"
 #include "cam_debug_util.h"
 
+static struct lock_class_key crm_workq_irq_lock_key;
+
 #define WORKQ_ACQUIRE_LOCK(workq, flags) {\
 	if ((workq)->in_irq) \
 		spin_lock_irqsave(&(workq)->lock_bh, (flags)); \
@@ -212,6 +214,15 @@ int cam_req_mgr_workq_create(char *name, int32_t num_tasks,
 		/* Workq attributes initialization */
 		INIT_WORK(&crm_workq->work, cam_req_mgr_process_workq);
 		spin_lock_init(&crm_workq->lock_bh);
+		/*
+		 * IRQ workqs (CRM_WORKQ_USAGE_IRQ, e.g. icp msg_work) take
+		 * lock_bh with irqsave from hard irq, the others with _bh only:
+		 * separate lockdep classes, else lockdep sees one class used
+		 * both irq-safe and irq-unsafe.
+		 */
+		if (in_irq)
+			lockdep_set_class(&crm_workq->lock_bh,
+					  &crm_workq_irq_lock_key);
 		CAM_DBG(CAM_CRM, "LOCK_DBG workq %s lock %pK",
 			name, &crm_workq->lock_bh);
 

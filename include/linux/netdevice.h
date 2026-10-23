@@ -2149,6 +2149,12 @@ struct net *dev_net(const struct net_device *dev)
 }
 
 static inline
+struct net *dev_net_rcu(const struct net_device *dev)
+{
+	return read_pnet_rcu(&dev->nd_net);
+}
+
+static inline
 void dev_net_set(struct net_device *dev, struct net *net)
 {
 	write_pnet(&dev->nd_net, net);
@@ -3001,7 +3007,7 @@ DECLARE_PER_CPU_ALIGNED(struct softnet_data, softnet_data);
 
 static inline int dev_recursion_level(void)
 {
-	return __this_cpu_read(softnet_data.xmit.recursion);
+	return this_cpu_read(softnet_data.xmit.recursion);
 }
 
 #define XMIT_RECURSION_LIMIT	8

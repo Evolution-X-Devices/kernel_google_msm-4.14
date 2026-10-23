@@ -702,6 +702,32 @@ int sde_power_data_bus_state_update(struct sde_power_handle *phandle,
 }
 #endif
 
+#ifdef CONFIG_LOCKDEP
+/*
+ * One lock class per power handle: the display's handle takes the RSC
+ * client_lock (sde_power_rsc_update) and the RSC, under client_lock, takes its
+ * own handle (sde_rsc_client_trigger_vote -> sde_power_data_bus_set_quota on
+ * &rsc->phandle). With one shared class lockdep reports a circular dependency
+ * and then turns itself off. Lockdep needs static keys, hence the array.
+ */
+#define SDE_POWER_LOCK_CLASSES	8
+static struct lock_class_key sde_power_lock_keys[SDE_POWER_LOCK_CLASSES];
+static atomic_t sde_power_lock_next = ATOMIC_INIT(0);
+
+static void sde_power_lock_init(struct sde_power_handle *phandle)
+{
+	int i = atomic_inc_return(&sde_power_lock_next) - 1;
+
+	__mutex_init(&phandle->phandle_lock, "&phandle->phandle_lock",
+		     &sde_power_lock_keys[min(i, SDE_POWER_LOCK_CLASSES - 1)]);
+}
+#else
+static void sde_power_lock_init(struct sde_power_handle *phandle)
+{
+	mutex_init(&phandle->phandle_lock);
+}
+#endif
+
 int sde_power_resource_init(struct platform_device *pdev,
 	struct sde_power_handle *phandle)
 {
@@ -777,7 +803,7 @@ int sde_power_resource_init(struct platform_device *pdev,
 	phandle->rsc_client = NULL;
 	phandle->rsc_client_init = false;
 
-	mutex_init(&phandle->phandle_lock);
+	sde_power_lock_init(phandle);
 
 	return rc;
 
